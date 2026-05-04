@@ -1,17 +1,17 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-from typing import Dict, Any
-import uvicorn
-import cv2
-import numpy as np
-from ultralytics import YOLO
-import uuid
-from datetime import datetime
 import io
-from PIL import Image
 import logging
 import time
+import uuid
+from datetime import datetime
+from typing import Dict
+
+import cv2
+import numpy as np
+import uvicorn
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from PIL import Image
+from pydantic import BaseModel
+from ultralytics import YOLO
 
 # Configure logging
 logging.basicConfig(
@@ -40,6 +40,11 @@ class VehicleCounts(BaseModel):
     pedestrians: int
 
 
+class TrafficLightTiming(BaseModel):
+    green_light_sec: int
+    red_light_sec: int
+
+
 class DetectionMetadata(BaseModel):
     confidence_score: float
     processing_time_ms: int
@@ -52,6 +57,7 @@ class DetectionResponse(BaseModel):
     camera_id: str
     timestamp: str
     vehicle_counts: VehicleCounts
+    traffic_light_timing: TrafficLightTiming
     detection_metadata: DetectionMetadata
 
 
@@ -130,6 +136,17 @@ def calculate_average_confidence(results) -> float:
     return avg_conf
 
 
+def calculate_traffic_lights(total_vehicles: int) -> dict:
+    if 1 <= total_vehicles <= 3:
+        return {"green": 10, "red": 20}
+    elif 4 <= total_vehicles <= 7:
+        return {"green": 15, "red": 15}
+    elif total_vehicles >= 8:
+        return {"green": 20, "red": 10}
+    else:
+        return {"green": 0, "red": 30}  # Default for 0 vehicles
+
+
 @app.get("/")
 async def root():
     """Health check endpoint"""
@@ -204,6 +221,8 @@ async def detect_vehicles(
             (time.time() - start_time) * 1000
         )  # Convert to milliseconds
 
+        traffic_timing = calculate_traffic_lights(total_vehicles)
+
         # Create response
         response = DetectionResponse(
             detection_id=str(uuid.uuid4()),
@@ -217,6 +236,10 @@ async def detect_vehicles(
                 motorcycles=vehicle_counts["motorcycles"],
                 bicycles=vehicle_counts["bicycles"],
                 pedestrians=vehicle_counts["pedestrians"],
+            ),
+            traffic_light_timing=TrafficLightTiming(
+                green_light_sec=traffic_timing["green"],
+                red_light_sec=traffic_timing["red"],
             ),
             detection_metadata=DetectionMetadata(
                 confidence_score=round(avg_confidence, 3),

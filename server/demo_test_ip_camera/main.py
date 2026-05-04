@@ -1,18 +1,66 @@
-import requests
-import os
 import json
-import time
-import sqlite3
-from pathlib import Path
-from typing import Optional, Dict, Any
 import logging
-from datetime import datetime
+import os
+import sqlite3
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import requests
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+import base64
+
+# Global variable to store the latest detection data
+latest_detection_data = {}
+
+
+class DataHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == "/api/latest":
+            self.send_response(200)
+            self.send_header("Content-type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            # Create a copy so we don't modify the global state directly
+            data_to_send = latest_detection_data.copy()
+
+            # Base64 encode the image if the path exists
+            if "source_image" in data_to_send and isinstance(
+                data_to_send["source_image"], str
+            ):
+                img_path = data_to_send["source_image"]
+                if os.path.exists(img_path):
+                    try:
+                        with open(img_path, "rb") as img_file:
+                            encoded_string = base64.b64encode(img_file.read()).decode(
+                                "utf-8"
+                            )
+                            data_to_send["source_image"] = (
+                                f"data:image/jpeg;base64,{encoded_string}"
+                            )
+                    except Exception as e:
+                        logger.error(f"Could not encode image: {e}")
+
+            self.wfile.write(json.dumps(data_to_send).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+def run_server():
+    server_address = ("", 8001)
+    httpd = HTTPServer(server_address, DataHandler)
+    logger.info("Starting local data API on port 8001...")
+    httpd.serve_forever()
 
 
 class DatabaseManager:
@@ -43,9 +91,10 @@ class DatabaseManager:
                         motorcycles INTEGER NOT NULL,
                         bicycles INTEGER NOT NULL,
                         pedestrians INTEGER NOT NULL,
+                        green_light_sec INTEGER NOT NULL DEFAULT 0,
+                        red_light_sec INTEGER NOT NULL DEFAULT 0,
                         confidence_score REAL NOT NULL,
                         processing_time_ms INTEGER NOT NULL,
-                        model_version TEXT NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """
@@ -65,6 +114,9 @@ class DatabaseManager:
 
                 # Extract data from result
                 vehicle_counts = result["vehicle_counts"]
+                traffic_timing = result.get(
+                    "traffic_light_timing", {"green_light_sec": 0, "red_light_sec": 0}
+                )
                 metadata = result["detection_metadata"]
 
                 cursor.execute(
@@ -72,8 +124,9 @@ class DatabaseManager:
                     INSERT OR REPLACE INTO detections (
                         detection_id, camera_id, timestamp, source_image,
                         total_vehicles, cars, trucks, buses, motorcycles, bicycles, pedestrians,
-                        confidence_score, processing_time_ms, model_version
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        green_light_sec, red_light_sec,
+                        confidence_score, processing_time_ms
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         result["detection_id"],
@@ -87,9 +140,10 @@ class DatabaseManager:
                         vehicle_counts["motorcycles"],
                         vehicle_counts["bicycles"],
                         vehicle_counts["pedestrians"],
+                        traffic_timing["green_light_sec"],
+                        traffic_timing["red_light_sec"],
                         metadata["confidence_score"],
                         metadata["processing_time_ms"],
-                        metadata["model_version"],
                     ),
                 )
 
@@ -110,7 +164,7 @@ class DatabaseManager:
                 # Get basic stats
                 cursor.execute(
                     """
-                    SELECT 
+                    SELECT
                         COUNT(*) as total_detections,
                         SUM(total_vehicles) as total_vehicles_detected,
                         AVG(processing_time_ms) as avg_processing_time,
@@ -156,10 +210,10 @@ class DatabaseManager:
 
                 cursor.execute(
                     """
-                    SELECT detection_id, camera_id, timestamp, source_image, 
+                    SELECT detection_id, camera_id, timestamp, source_image,
                            total_vehicles, confidence_score, processing_time_ms
-                    FROM detections 
-                    ORDER BY created_at DESC 
+                    FROM detections
+                    ORDER BY created_at DESC
                     LIMIT ?
                 """,
                     (limit,),
@@ -254,11 +308,18 @@ class VehicleDetectionClient:
                     result = response.json()
                     logger.info(f"Detection successful for {image_path}")
 
+                    # Add source image path to result
+                    result["source_image"] = str(image_path)
+
+                    # Update the global latest detection data
+                    global latest_detection_data
+                    latest_detection_data = result
+
                     # Save to database
                     if self.db.save_detection(result):
-                        logger.debug(f"Detection data saved to database")
+                        logger.debug("Detection data saved to database")
                     else:
-                        logger.warning(f"Failed to save detection data to database")
+                        logger.warning("Failed to save detection data to database")
 
                     return result
                 else:
@@ -309,11 +370,10 @@ class VehicleDetectionClient:
 
         results = []
         for i, image_path in enumerate(sorted(image_files)):
-            camera_id = f"{camera_id_prefix}_{i+1:03d}"
+            camera_id = f"{camera_id_prefix}_{i + 1:03d}"
 
             result = self.send_image_for_detection(str(image_path), camera_id)
             if result:
-                result["source_image"] = str(image_path)
                 results.append(result)
 
                 # Print summary
@@ -336,8 +396,12 @@ class VehicleDetectionClient:
             else:
                 logger.error(f"\033[91mFailed to process: {image_path.name}\033[0m")
 
-            # Small delay between requests to avoid overwhelming the API
-            time.sleep(0.5)
+            # Wait 30 seconds before sending the next image, except for the last image
+            if i < len(image_files) - 1:
+                logger.info(
+                    "Waiting 30 seconds before sending the next image to simulate real-time polling..."
+                )
+                time.sleep(30)
 
         return results
 
@@ -382,6 +446,16 @@ class VehicleDetectionClient:
         for vehicle_type, count in vehicle_type_totals.items():
             if count > 0:
                 print(f"  {vehicle_type.capitalize()}: {count}")
+
+        # Latest traffic light timing
+        if results:
+            latest = results[-1]
+            if "traffic_light_timing" in latest:
+                timing = latest["traffic_light_timing"]
+                print("\nLatest Traffic Light Timing:")
+                print(f"  Green Light: {timing['green_light_sec']} sec")
+                print(f"  Red Light: {timing['red_light_sec']} sec")
+
         print("=" * 50)
 
     def print_database_summary(self):
@@ -422,10 +496,14 @@ class VehicleDetectionClient:
 
 def main():
     """Main function"""
+    # Start the local API server in a background thread
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+
     # Configuration
     API_URL = "http://localhost:8000"
     # Folder containing images
-    IMAGE_FOLDER = "../../data/processed/ip_camera"
+    IMAGE_FOLDER = "../../data/ip_camera"
 
     # Initialize client
     client = VehicleDetectionClient(API_URL)
