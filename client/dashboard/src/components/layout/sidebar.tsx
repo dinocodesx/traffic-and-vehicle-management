@@ -12,8 +12,10 @@ import {
   Bike, 
   Truck, 
   Bus,
-  Activity
+  Activity,
+  LayoutDashboard
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import type { LatestDetectionResponse } from '../../types/api';
 
 interface SidebarProps {
@@ -61,12 +63,19 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedPinId, onPinSelect, latestDat
 
   return (
     <aside className="w-[380px] h-screen bg-card border-r border-border flex flex-col z-[1000] shadow-xl overflow-y-auto scrollbar-thin">
-      <div className="p-6 border-b border-border bg-gradient-to-br from-primary/5 via-transparent to-transparent">
-        <div className="flex items-center gap-2 mb-1">
-          <TrafficCone className="text-primary w-6 h-6 animate-pulse" />
-          <h1 className="text-xl font-bold tracking-tight text-foreground">TrafficFlow AI</h1>
+      <div className="p-6 border-b border-border bg-gradient-to-br from-primary/5 via-transparent to-transparent flex flex-col gap-4">
+        <div className="flex items-center justify-between w-full">
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-1">
+              <TrafficCone className="text-primary w-6 h-6 animate-pulse" />
+              <h1 className="text-xl font-bold tracking-tight text-foreground">TrafficFlow AI</h1>
+            </div>
+            <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Command Center</p>
+          </div>
+          <Link to="/monitor" className="p-2 bg-primary/10 rounded-lg text-primary hover:bg-primary hover:text-white transition-all shadow-sm group" title="Open Global Monitor">
+            <LayoutDashboard className="w-5 h-5 group-hover:scale-110 transition-transform" />
+          </Link>
         </div>
-        <p className="text-sm text-muted-foreground font-medium">Kolkata Real-time Command Center</p>
       </div>
 
       <div className="p-6 space-y-6">
