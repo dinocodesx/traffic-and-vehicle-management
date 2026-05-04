@@ -1,5 +1,6 @@
 import io
 import logging
+import os
 import time
 import uuid
 from datetime import datetime
@@ -9,6 +10,8 @@ import cv2
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 from ultralytics import YOLO
@@ -27,6 +30,20 @@ app = FastAPI(
     description="API for detecting and counting vehicles in road images using YOLO",
     version="1.0.0",
 )
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount static files for traffic frames
+script_dir = os.path.dirname(os.path.abspath(__file__))
+frames_dir = os.path.join(script_dir, "../../data/final/ip_camera")
+app.mount("/frames", StaticFiles(directory=frames_dir), name="frames")
 
 
 # Response models

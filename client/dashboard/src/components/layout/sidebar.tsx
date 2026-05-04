@@ -13,7 +13,8 @@ import {
   Truck, 
   Bus,
   Activity,
-  LayoutDashboard
+  LayoutDashboard,
+  Monitor
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { LatestDetectionResponse } from '../../types/api';
@@ -72,9 +73,14 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedPinId, onPinSelect, latestDat
             </div>
             <p className="text-[10px] text-muted-foreground font-bold uppercase tracking-widest">Command Center</p>
           </div>
-          <Link to="/monitor" className="p-2 bg-primary/10 rounded-lg text-primary hover:bg-primary hover:text-white transition-all shadow-sm group" title="Open Global Monitor">
-            <LayoutDashboard className="w-5 h-5 group-hover:scale-110 transition-transform" />
-          </Link>
+          <div className="flex gap-2">
+            <Link to="/traffic" className="p-2 bg-secondary/80 rounded-lg text-foreground hover:bg-primary hover:text-white transition-all shadow-sm group" title="Detailed Analysis">
+              <Monitor className="w-5 h-5 group-hover:scale-110 transition-transform" />
+            </Link>
+            <Link to="/monitor" className="p-2 bg-primary/10 rounded-lg text-primary hover:bg-primary hover:text-white transition-all shadow-sm group" title="Open Global Monitor">
+              <LayoutDashboard className="w-5 h-5 group-hover:scale-110 transition-transform" />
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -170,28 +176,28 @@ const Sidebar: React.FC<SidebarProps> = ({ selectedPinId, onPinSelect, latestDat
                      <div className="p-2 bg-blue-500/10 rounded-lg"><Car className="w-4 h-4 text-blue-600" /></div>
                      <div>
                        <div className="text-xs font-bold">{stats.vehicles.cars}</div>
-                       <div className="text-[9px] text-muted-foreground font-medium uppercase">Cars</div>
+                       <div className="text-[9px] font-bold text-muted-foreground uppercase">Cars</div>
                      </div>
                    </div>
                    <div className="flex items-center gap-3">
                      <div className="p-2 bg-purple-500/10 rounded-lg"><Bike className="w-4 h-4 text-purple-600" /></div>
                      <div>
                        <div className="text-xs font-bold">{stats.vehicles.bikes}</div>
-                       <div className="text-[9px] text-muted-foreground font-medium uppercase">Bikes</div>
+                       <div className="text-[9px] font-bold text-muted-foreground uppercase">Bikes</div>
                      </div>
                    </div>
                    <div className="flex items-center gap-3">
                      <div className="p-2 bg-orange-500/10 rounded-lg"><Truck className="w-4 h-4 text-orange-600" /></div>
                      <div>
                        <div className="text-xs font-bold">{stats.vehicles.trucks}</div>
-                       <div className="text-[9px] text-muted-foreground font-medium uppercase">Trucks</div>
+                       <div className="text-[9px] font-bold text-muted-foreground uppercase">Trucks</div>
                      </div>
                    </div>
                    <div className="flex items-center gap-3">
                      <div className="p-2 bg-cyan-500/10 rounded-lg"><Bus className="w-4 h-4 text-cyan-600" /></div>
                      <div>
                        <div className="text-xs font-bold">{stats.vehicles.vans}</div>
-                       <div className="text-[9px] text-muted-foreground font-medium uppercase">Vans</div>
+                       <div className="text-[9px] font-bold text-muted-foreground uppercase">Vans</div>
                      </div>
                    </div>
                 </div>

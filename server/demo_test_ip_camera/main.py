@@ -23,11 +23,20 @@ latest_detection_data = {}
 
 
 class DataHandler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "*")
+        self.end_headers()
+
     def do_GET(self):
         if self.path == "/api/latest":
             self.send_response(200)
             self.send_header("Content-type", "application/json")
             self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "*")
             self.end_headers()
 
             # Create a copy so we don't modify the global state directly
@@ -502,8 +511,11 @@ def main():
 
     # Configuration
     API_URL = "http://localhost:8000"
-    # Folder containing images
-    IMAGE_FOLDER = "../../data/ip_camera"
+    
+    # Folder containing images - calculate absolute path relative to this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    IMAGE_FOLDER = os.path.join(script_dir, "../../data/final/ip_camera")
+    IMAGE_FOLDER = os.path.abspath(IMAGE_FOLDER)
 
     # Initialize client
     client = VehicleDetectionClient(API_URL)
