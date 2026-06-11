@@ -1,6 +1,7 @@
 export interface DetectionMetadata {
   confidence_score: number;
   processing_time_ms: number;
+  model_version: string;
 }
 
 export interface TrafficLightTiming {
