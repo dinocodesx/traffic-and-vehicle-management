@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live YOLO Object Detection</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /* ─── Reset & Base ─────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0a0d14;
+      --surface:   #111827;
+      --border:    #1f2937;
+      --accent:    #6366f1;
+      --accent2:   #22d3ee;
+      --green:     #10b981;
+      --red:       #ef4444;
+      --yellow:    #f59e0b;
+      --text:      #f1f5f9;
+      --muted:     #64748b;
+      --radius:    12px;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* ─── Header ───────────────────────────────── */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+
+    .logo {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 1rem; font-weight: 600; letter-spacing: -0.02em;
+    }
+
+    .logo-icon {
+      width: 32px; height: 32px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    .badge {
+      font-size: 11px; font-weight: 500; padding: 2px 8px;
+      border-radius: 20px; border: 1px solid;
+    }
+    .badge-live { color: var(--green); border-color: var(--green); background: rgba(16,185,129,.12); }
+    .badge-off  { color: var(--muted); border-color: var(--border); background: transparent; }
+
+    /* ─── Main Layout ──────────────────────────── */
+    main {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 1fr 320px;
+      gap: 16px;
+      padding: 16px;
+      align-items: start;
+    }
+
+    @media (max-width: 768px) {
+      main {
+        grid-template-columns: 1fr;
+        padding: 0;          /* camera goes full-width, edge-to-edge */
+        gap: 0;
+      }
+
+      .camera-section {
+        border-radius: 0;    /* no rounded corners on mobile — full bleed */
+        border-left: none;
+        border-right: none;
+        border-top: none;
+      }
+
+      .camera-wrapper {
+        aspect-ratio: 4/3;   /* taller than 16/9 — much bigger on portrait screens */
+      }
+
+      .panel {
+        padding: 12px;       /* restore inner padding for the controls below */
+        gap: 10px;
+      }
+    }
+
+    /* ─── Camera Area ──────────────────────────── */
+    .camera-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .camera-wrapper {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: #050709;
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    video {
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    canvas#overlay {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    .camera-placeholder {
+      text-align: center; color: var(--muted);
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 10px;
+    }
+
+    .camera-placeholder .icon { font-size: 48px; opacity: 0.4; }
+    .camera-placeholder p { font-size: 13px; }
+
+    /* ─── Stats Bar ────────────────────────────── */
+    .stats-bar {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      padding: 10px 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .stat {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--muted);
+    }
+
+    .stat strong { color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+    .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+    }
+    .dot-green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .dot-yellow { background: var(--yellow); }
+    .dot-red { background: var(--red); }
+
+    /* ─── Controls Panel ───────────────────────── */
+    .panel {
+      display: flex; flex-direction: column; gap: 12px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+
+    .card-title {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: .08em;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    /* Buttons */
+    .btn {
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      padding: 10px 16px; border-radius: 8px; border: none;
+      font-family: inherit; font-size: 13px; font-weight: 500;
+      cursor: pointer; transition: all .15s; width: 100%;
+    }
+
+    .btn-primary {
+      background: var(--accent); color: #fff;
+    }
+    .btn-primary:hover { filter: brightness(1.15); }
+    .btn-primary:disabled { opacity: .4; cursor: not-allowed; filter: none; }
+
+    .btn-danger {
+      background: rgba(239,68,68,.15); color: var(--red);
+      border: 1px solid rgba(239,68,68,.3);
+    }
+    .btn-danger:hover { background: rgba(239,68,68,.25); }
+
+    .btn-ghost {
+      background: var(--border); color: var(--text);
+    }
+    .btn-ghost:hover { background: #2d3748; }
+    .btn-ghost.active {
+      background: rgba(99,102,241,.2); color: var(--accent);
+      border: 1px solid rgba(99,102,241,.4);
+    }
+
+    .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    /* Slider */
+    .slider-label {
+      display: flex; justify-content: space-between;
+      font-size: 13px; margin-bottom: 8px;
+    }
+
+    .slider-label span { color: var(--muted); }
+    .slider-label strong { color: var(--accent2); font-size: 13px; }
+
+    input[type=range] {
+      -webkit-appearance: none; width: 100%; height: 4px;
+      border-radius: 4px; outline: none;
+      background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--val,35%), var(--border) var(--val,35%));
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 16px; height: 16px;
+      border-radius: 50%; background: var(--accent);
+      box-shadow: 0 0 0 3px rgba(99,102,241,.3);
+    }
+
+    /* FPS Slider */
+    #fps-range {
+      background: linear-gradient(to right, var(--accent2) 0%, var(--accent2) var(--fps-val,40%), var(--border) var(--fps-val,40%));
+    }
+    #fps-range::-webkit-slider-thumb { background: var(--accent2); box-shadow: 0 0 0 3px rgba(34,211,238,.25); }
+
+    /* Detection list */
+    .detection-list {
+      display: flex; flex-direction: column; gap: 6px;
+      max-height: 220px; overflow-y: auto;
+    }
+
+    .detection-item {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 7px 10px; border-radius: 7px;
+      background: #0e131c; border: 1px solid var(--border);
+      font-size: 12px; animation: fadeIn .2s ease;
+    }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+    .det-label { display: flex; align-items: center; gap: 6px; }
+    .det-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+    .det-name { font-weight: 500; text-transform: capitalize; }
+    .det-conf { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+    .empty-msg { text-align: center; color: var(--muted); font-size: 12px; padding: 20px 0; }
+
+    /* Error toast */
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: #1e0a0a; border: 1px solid var(--red); color: var(--red);
+      border-radius: 8px; padding: 10px 16px; font-size: 13px;
+      opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 999;
+      max-width: 90vw; text-align: center;
+    }
+    .toast.visible { opacity: 1; }
+
+    /* Custom scrollbar */
+    .detection-list::-webkit-scrollbar { width: 4px; }
+    .detection-list::-webkit-scrollbar-track { background: transparent; }
+    .detection-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  </style>
+</head>
+<body>
+
+  <!-- ── Header ──────────────────────────────── -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">🎯</div>
+      YOLO Live Detection
+    </div>
+    <span class="badge badge-off" id="live-badge">● OFF</span>
+  </header>
+
+  <!-- ── Main Layout ───────────────────────────── -->
+  <main>
+
+    <!-- Camera Column -->
+    <div class="camera-section">
+      <div class="camera-wrapper">
+        <div class="camera-placeholder" id="placeholder">
+          <div class="icon">📷</div>
+          <p>Click <strong>Start Camera</strong> to begin</p>
+        </div>
+        <video id="video" autoplay playsinline muted style="display:none;"></video>
+        <canvas id="overlay"></canvas>
+      </div>
+
+      <div class="stats-bar">
+        <div class="stat">
+          <div class="dot" id="status-dot" style="background:var(--muted)"></div>
+          <span>Status</span>
+          <strong id="status-text">Idle</strong>
+        </div>
+        <div class="stat">
+          <span>FPS</span>
+          <strong id="stat-fps">—</strong>
+        </div>
+        <div class="stat">
+          <span>Latency</span>
+          <strong id="stat-latency">— ms</strong>
+        </div>
+        <div class="stat">
+          <span>Inference</span>
+          <strong id="stat-inference">— ms</strong>
+        </div>
+        <div class="stat">
+          <span>Objects</span>
+          <strong id="stat-objects">0</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls Column -->
+    <div class="panel">
+
+      <!-- Camera Controls -->
+      <div class="card">
+        <div class="card-title">Camera Controls</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <button class="btn btn-primary" id="btn-start">▶ Start Camera</button>
+          <button class="btn btn-danger" id="btn-stop" disabled>■ Stop</button>
+          <div class="btn-row">
+            <button class="btn btn-ghost" id="btn-front">Front</button>
+            <button class="btn btn-ghost active" id="btn-rear">Rear</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detection Settings -->
+      <div class="card">
+        <div class="card-title">Detection Settings</div>
+
+        <div class="slider-label">
+          <span>Confidence</span>
+          <strong id="conf-val">35%</strong>
+        </div>
+        <input type="range" id="conf-range" min="10" max="90" value="35" style="margin-bottom:16px;" />
+
+        <div class="slider-label">
+          <span>Frame Rate</span>
+          <strong id="fps-val">5 fps</strong>
+        </div>
+        <input type="range" id="fps-range" min="1" max="15" value="5" />
+      </div>
+
+      <!-- Live Detections -->
+      <div class="card">
+        <div class="card-title">Live Detections</div>
+        <div class="detection-list" id="detection-list">
+          <div class="empty-msg">No detections yet</div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Error Toast -->
+  <div class="toast" id="toast"></div>
+
+  <!-- Hidden canvas for frame capture -->
+  <canvas id="capture" style="display:none;"></canvas>
+
+  <script>
+    // ─────────────────────────────────────────
+    // Config
+    // ─────────────────────────────────────────
+    // Dynamically derive the API base from the page's own origin,
+    // so this works on localhost AND via ngrok/any tunnel on mobile.
+    const API_URL = `${window.location.origin}/detect`;
+    const CAPTURE_WIDTH = 640; // resize frames before sending
+
+    // ─────────────────────────────────────────
+    // State
+    // ─────────────────────────────────────────
+    let stream = null;
+    let detectionInterval = null;
+    let isProcessing = false;
+    let facingMode = 'environment';
+
+    let confidence = 0.35;
+    let targetFps = 5;
+    let lastDetections = [];
+
+    // Stats
+    let fpsCounter = 0;
+    let fpsDisplay = 0;
+    let lastFpsReset = Date.now();
+
+    // ─────────────────────────────────────────
+    // DOM refs
+    // ─────────────────────────────────────────
+    const video       = document.getElementById('video');
+    const overlay     = document.getElementById('overlay');
+    const capture     = document.getElementById('capture');
+    const placeholder = document.getElementById('placeholder');
+    const liveBadge   = document.getElementById('live-badge');
+
+    const btnStart    = document.getElementById('btn-start');
+    const btnStop     = document.getElementById('btn-stop');
+    const btnFront    = document.getElementById('btn-front');
+    const btnRear     = document.getElementById('btn-rear');
+
+    const confRange   = document.getElementById('conf-range');
+    const confVal     = document.getElementById('conf-val');
+    const fpsRange    = document.getElementById('fps-range');
+    const fpsVal      = document.getElementById('fps-val');
+
+    const statFps     = document.getElementById('stat-fps');
+    const statLatency = document.getElementById('stat-latency');
+    const statInf     = document.getElementById('stat-inference');
+    const statObjects = document.getElementById('stat-objects');
+    const statusDot   = document.getElementById('status-dot');
+    const statusText  = document.getElementById('status-text');
+    const detList     = document.getElementById('detection-list');
+    const toast       = document.getElementById('toast');
+
+    const ctx         = overlay.getContext('2d');
+
+    // ─────────────────────────────────────────
+    // Color palette (index → hue)
+    // ─────────────────────────────────────────
+    function classColor(classId) {
+      const hues = [
+        210, 30, 120, 270, 60, 180, 330, 90, 240, 150,
+        300, 0,  195, 45,  315, 165, 75,  225, 135, 15
+      ];
+      const hue = hues[classId % hues.length];
+      return `hsl(${hue}, 90%, 60%)`;
+    }
+
+    function classColorAlpha(classId, alpha) {
+      const hues = [
+        210, 30, 120, 270, 60, 180, 330, 90, 240, 150,
+        300, 0,  195, 45,  315, 165, 75,  225, 135, 15
+      ];
+      const hue = hues[classId % hues.length];
+      return `hsla(${hue}, 90%, 60%, ${alpha})`;
+    }
+
+    // ─────────────────────────────────────────
+    // Toast helper
+    // ─────────────────────────────────────────
+    let toastTimer = null;
+    function showToast(msg) {
+      toast.textContent = msg;
+      toast.classList.add('visible');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toast.classList.remove('visible'), 4000);
+    }
+
+    // ─────────────────────────────────────────
+    // Slider updates
+    // ─────────────────────────────────────────
+    confRange.addEventListener('input', () => {
+      confidence = confRange.value / 100;
+      confVal.textContent = `${confRange.value}%`;
+      confRange.style.setProperty('--val', `${confRange.value}%`);
+    });
+
+    fpsRange.addEventListener('input', () => {
+      targetFps = parseInt(fpsRange.value);
+      fpsVal.textContent = `${targetFps} fps`;
+      fpsRange.style.setProperty('--fps-val', `${(targetFps / 15 * 100).toFixed(0)}%`);
+      if (detectionInterval) restartLoop();
+    });
+
+    // Init slider gradients
+    confRange.style.setProperty('--val', '35%');
+    fpsRange.style.setProperty('--fps-val', `${(5/15*100).toFixed(0)}%`);
+
+    // ─────────────────────────────────────────
+    // Camera toggle buttons
+    // ─────────────────────────────────────────
+    btnFront.addEventListener('click', () => {
+      facingMode = 'user';
+      btnFront.classList.add('active');
+      btnRear.classList.remove('active');
+      if (stream) restartCamera();
+    });
+
+    btnRear.addEventListener('click', () => {
+      facingMode = 'environment';
+      btnRear.classList.add('active');
+      btnFront.classList.remove('active');
+      if (stream) restartCamera();
+    });
+
+    // ─────────────────────────────────────────
+    // Start / Stop
+    // ─────────────────────────────────────────
+    btnStart.addEventListener('click', startCamera);
+    btnStop.addEventListener('click',  stopCamera);
+
+    async function startCamera() {
+      btnStart.disabled = true;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 } },
+          audio: false,
+        });
+        video.srcObject = stream;
+        video.style.display = 'block';
+        placeholder.style.display = 'none';
+
+        // Wait for video metadata
+        await new Promise(r => { video.onloadedmetadata = r; });
+        video.play();
+
+        setStatus('running');
+        btnStop.disabled = false;
+        btnStart.disabled = true;
+        startDetectionLoop();
+      } catch (err) {
+        btnStart.disabled = false;
+        showToast(`Camera error: ${err.message}`);
+        setStatus('error');
+      }
+    }
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      stopDetectionLoop();
+      video.srcObject = null;
+      video.style.display = 'none';
+      placeholder.style.display = 'flex';
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+      lastDetections = [];
+      renderDetectionList([]);
+
+      btnStart.disabled = false;
+      btnStop.disabled = true;
+      setStatus('idle');
+      statFps.textContent = '—';
+      statLatency.textContent = '— ms';
+      statInf.textContent = '— ms';
+      statObjects.textContent = '0';
+    }
+
+    async function restartCamera() {
+      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+      stopDetectionLoop();
+      await startCamera();
+    }
+
+    // ─────────────────────────────────────────
+    // Detection loop
+    // ─────────────────────────────────────────
+    function startDetectionLoop() {
+      stopDetectionLoop();
+      const interval = Math.round(1000 / targetFps);
+      detectionInterval = setInterval(runDetection, interval);
+    }
+
+    function stopDetectionLoop() {
+      if (detectionInterval) { clearInterval(detectionInterval); detectionInterval = null; }
+    }
+
+    function restartLoop() {
+      if (detectionInterval) startDetectionLoop();
+    }
+
+    async function runDetection() {
+      if (isProcessing || !stream || video.readyState < 2) return;
+      isProcessing = true;
+
+      try {
+        // ── Capture frame to hidden canvas ───
+        const vw = video.videoWidth;
+        const vh = video.videoHeight;
+        if (!vw || !vh) { isProcessing = false; return; }
+
+        const scale = CAPTURE_WIDTH / vw;
+        capture.width  = CAPTURE_WIDTH;
+        capture.height = Math.round(vh * scale);
+        capture.getContext('2d').drawImage(video, 0, 0, capture.width, capture.height);
+
+        // ── Convert to Blob ──────────────────
+        const blob = await new Promise(r => capture.toBlob(r, 'image/jpeg', 0.8));
+
+        // ── POST to /detect ──────────────────
+        const form = new FormData();
+        form.append('file', blob, 'frame.jpg');
+        form.append('confidence', confidence.toString());
+
+        const t0 = performance.now();
+        const resp = await fetch(API_URL, { method: 'POST', body: form });
+        const latency = Math.round(performance.now() - t0);
+
+        if (!resp.ok) throw new Error(`Server: ${resp.status}`);
+        const data = await resp.json();
+
+        // ── Update stats ─────────────────────
+        statLatency.textContent = `${latency} ms`;
+        statInf.textContent     = `${data.inference_ms} ms`;
+        statObjects.textContent = data.count;
+
+        fpsCounter++;
+        const now = Date.now();
+        if (now - lastFpsReset >= 1000) {
+          fpsDisplay = fpsCounter;
+          fpsCounter = 0;
+          lastFpsReset = now;
+          statFps.textContent = fpsDisplay;
+        }
+
+        // ── Draw overlay ─────────────────────
+        lastDetections = data.detections;
+        drawOverlay(data.detections);
+        renderDetectionList(data.detections);
+
+      } catch (err) {
+        // Don't spam toast for every failed frame
+        if (err.message && !err.message.includes('fetch')) {
+          showToast(`Detection error: ${err.message}`);
+        }
+      } finally {
+        isProcessing = false;
+      }
+    }
+
+    // ─────────────────────────────────────────
+    // Canvas overlay drawing
+    // ─────────────────────────────────────────
+    function drawOverlay(detections) {
+      // Sync canvas size to displayed video size
+      const rect = video.getBoundingClientRect();
+      overlay.width  = rect.width;
+      overlay.height = rect.height;
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+      for (const det of detections) {
+        const { class_id, class_name, confidence: conf, box } = det;
+        const color = classColor(class_id);
+        const colorA = classColorAlpha(class_id, 0.1);
+
+        const x1 = box.x1 * overlay.width;
+        const y1 = box.y1 * overlay.height;
+        const x2 = box.x2 * overlay.width;
+        const y2 = box.y2 * overlay.height;
+        const w  = x2 - x1;
+        const h  = y2 - y1;
+
+        // Fill
+        ctx.fillStyle = colorA;
+        ctx.fillRect(x1, y1, w, h);
+
+        // Border
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x1, y1, w, h);
+
+        // Corner accents
+        const cs = Math.min(w, h, 16);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = color;
+        // Top-left
+        ctx.beginPath(); ctx.moveTo(x1, y1 + cs); ctx.lineTo(x1, y1); ctx.lineTo(x1 + cs, y1); ctx.stroke();
+        // Top-right
+        ctx.beginPath(); ctx.moveTo(x2 - cs, y1); ctx.lineTo(x2, y1); ctx.lineTo(x2, y1 + cs); ctx.stroke();
+        // Bottom-left
+        ctx.beginPath(); ctx.moveTo(x1, y2 - cs); ctx.lineTo(x1, y2); ctx.lineTo(x1 + cs, y2); ctx.stroke();
+        // Bottom-right
+        ctx.beginPath(); ctx.moveTo(x2 - cs, y2); ctx.lineTo(x2, y2); ctx.lineTo(x2, y2 - cs); ctx.stroke();
+
+        // Label
+        const label = `${class_name}  ${Math.round(conf * 100)}%`;
+        const fontSize = Math.max(11, Math.min(14, w / 8));
+        ctx.font = `600 ${fontSize}px Inter, sans-serif`;
+        const tw = ctx.measureText(label).width;
+        const th = fontSize + 8;
+        const lx = x1;
+        const ly = y1 - th < 0 ? y1 + 2 : y1 - th;
+
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.roundRect(lx, ly, tw + 12, th, 4);
+        ctx.fill();
+
+        ctx.fillStyle = '#000';
+        ctx.fillText(label, lx + 6, ly + fontSize - 1);
+      }
+    }
+
+    // ─────────────────────────────────────────
+    // Detections list in sidebar
+    // ─────────────────────────────────────────
+    function renderDetectionList(detections) {
+      if (!detections.length) {
+        detList.innerHTML = '<div class="empty-msg">No objects detected</div>';
+        return;
+      }
+
+      // Sort by confidence desc
+      const sorted = [...detections].sort((a, b) => b.confidence - a.confidence);
+
+      detList.innerHTML = sorted.map(det => {
+        const color = classColor(det.class_id);
+        return `
+          <div class="detection-item">
+            <div class="det-label">
+              <div class="det-dot" style="background:${color};"></div>
+              <span class="det-name">${det.class_name}</span>
+            </div>
+            <span class="det-conf">${Math.round(det.confidence * 100)}%</span>
+          </div>`;
+      }).join('');
+    }
+
+    // ─────────────────────────────────────────
+    // Status helper
+    // ─────────────────────────────────────────
+    function setStatus(state) {
+      const states = {
+        idle:    { dot: 'var(--muted)',  text: 'Idle',    badge: '● OFF',   badgeClass: 'badge-off' },
+        running: { dot: 'var(--green)',  text: 'Running', badge: '● LIVE',  badgeClass: 'badge-live' },
+        error:   { dot: 'var(--red)',    text: 'Error',   badge: '● ERROR', badgeClass: 'badge-off' },
+      };
+      const s = states[state] || states.idle;
+      statusDot.style.background = s.dot;
+      if (state === 'running') statusDot.classList.add('dot-green');
+      else statusDot.classList.remove('dot-green');
+      statusText.textContent = s.text;
+      liveBadge.textContent = s.badge;
+      liveBadge.className = `badge ${s.badgeClass}`;
+    }
+  </script>
+
+</body>
+</html>
